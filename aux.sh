@@ -2,13 +2,16 @@
 
 ########################################
 #
-# for Lisk v0.3.2, modified lisk.sh
+# modified lisk.sh for Lisk v0.3.3 
 # script for backup/restore blockchain.db
+# set parameter "main" or "test" in line 32
 # blockchain.db must be present in same directory as script or is created into it, backup deletes blockchain.db that is present
 # commands: backup, backuphot (no stopping of Lisk), restore
 # in addition, all other commands can be used from lisk.sh
+# rebuild is changed to do restore
 #
 ########################################
+
 cd "$(cd -P -- "$(dirname -- "$0")" && pwd -P)"
 . "$(pwd)/shared.sh"
 . "$(pwd)/env.sh"
@@ -23,15 +26,16 @@ if [ "$USER" == "root" ]; then
   exit 1
 fi
 
+
+
 UNAME=$(uname)
 NETWORK="test"
-LISK_CONFIG=${2:-config.json}
-#CONFIG_NAME=`echo $LISK_CONFIG | cut -f 1 -d '.'`
+LISK_CONFIG=config.json
 
 LOGS_DIR="$(pwd)/logs"
 PIDS_DIR="$(pwd)/pids"
 
-mkdir -p "$(pwd)/logs" "$(pwd)/pids"
+
 
 DB_NAME=`grep "database" $LISK_CONFIG | cut -f 4 -d '"'`
 DB_USER=$USER
@@ -41,6 +45,7 @@ DB_LOG_FILE="$LOGS_DIR/pgsql.log"
 
 LOG_FILE="$LOGS_DIR/$DB_NAME.app.log"
 PID_FILE="$PIDS_DIR/$DB_NAME.pid"
+
 
 CMDS=("curl" "forever" "gunzip" "node" "tar" "psql" "createdb" "createuser" "dropdb" "dropuser")
 check_cmds CMDS[@]
@@ -112,7 +117,7 @@ restore2_blockchain() {
   if [ -f blockchain.db ]; then
     psql -qd "$DB_NAME" < blockchain.db &> /dev/null
   fi
-  #rm -f blockchain.*
+#  rm -f blockchain.*
   if [ $? != 0 ]; then
     echo "X Failed to restore blockchain."
     exit 1
@@ -120,7 +125,6 @@ restore2_blockchain() {
     echo "√ Blockchain restored successfully."
   fi
 }
-
 
 autostart_cron() {
   local cmd="crontab"
@@ -204,6 +208,20 @@ stop_postgresql() {
   fi
 }
 
+snapshot_lisk() {
+if check_status == 1 &> /dev/null; then
+  check_status
+  exit 1
+else
+  forever start -u lisk -a -l $LOG_FILE --pidFile $PID_FILE -m 1 app.js -c $LISK_CONFIG -s $SNAPSHOT &> /dev/null
+  if [ $? == 0 ]; then
+    echo "√ Lisk started successfully in snapshot mode."
+  else
+    echo "X Failed to start lisk."
+  fi
+fi
+}
+
 start_lisk() {
   if check_status == 1 &> /dev/null; then
     check_status
@@ -239,15 +257,8 @@ stop_lisk() {
 
 rebuild_lisk() {
   create_database
-  download_blockchain
-  restore_blockchain
-}
-
-
-rebuild2_lisk() {
-  create_database
-  #download_blockchain
-  restore2_blockchain
+# download_blockchain
+  restore2_blockchain #changed from restore_blockchain
 }
 
 check_status() {
@@ -276,52 +287,91 @@ tail_logs() {
 }
 
 help() {
-  echo -e "\nCommand Options for aux.sh\n"
+  echo -e "\nCommand Options for Lisk.sh"
   echo -e "backup\t\t\t\t\tbacks up database into blockchain.db and stops and restarts Lisk"
-  echo -e "backuphot\t\t\t\tbacks up  into blockchain.db and does not stop Lisk"
+  echo -e "backuphot\t\t\t\tbacks up into blockchain.db and does not stop Lisk"
   echo -e "restore\t\t\t\t\trestores blockchain.db"
-  echo -e "\nstart_node <config.json>\t\tStarts a Nodejs process for Lisk"
-  echo -e "start <config.json>\t\t\tStarts the Nodejs process and PostgreSQL Database for Lisk"
-  echo -e "stop_node <config.json>\t\t\tStops a Nodejs process for Lisk"
-  echo -e "stop <config.json>\t\t\tStop the Nodejs process and PostgreSQL Database for Lisk"
-  echo -e "reload <config.json>\t\t\tRestarts the Nodejs process for Lisk"
-  echo -e "rebuild <config.json>\t\t\tRebuilds the PostgreSQL database"
-  echo -e "start_db <config.json>\t\t\tStarts the PostgreSQL database"
-  echo -e "stop_db <config.json>\t\t\tStops the PostgreSQL database"
-  echo -e "coldstart\t\t\t\tCreates the PostgreSQL database and configures config.json for Lisk"
-  echo -e "logs <config.json>\t\t\tTails the log file for the supplied config.json"
-  echo -e "status <config.json>\t\t\tDisplays the status for the supplied config.json"
-  echo -e "help\t\t\t\t\tDisplays this message"
+  echo -e "\nAll options may be passed\t -c <config.json>"
+  echo -e "\nstart_node\t\tStarts a Nodejs process for Lisk"
+  echo -e "start\t\t\tStarts the Nodejs process and PostgreSQL Database for Lisk"
+  echo -e "stop_node\t\tStops a Nodejs process for Lisk"
+  echo -e "stop\t\t\tStop the Nodejs process and PostgreSQL Database for Lisk"
+  echo -e "reload\t\t\tRestarts the Nodejs process for Lisk"
+  echo -e "rebuild\t\t\tRebuilds the PostgreSQL database"
+  echo -e "start_db\t\tStarts the PostgreSQL database"
+  echo -e "stop_db\t\t\tStops the PostgreSQL database"
+  echo -e "coldstart\t\tCreates the PostgreSQL database and configures config.json for Lisk"
+  echo -e "snapshot -s ###\t\tStarts Lisk in snapshot mode"
+  echo -e "logs\t\t\tDisplays and tails logs for Lisk"
+  echo -e "status\t\t\tDisplays the status of the PID associated with Lisk"
+  echo -e "help\t\t\tDisplays this message"
+}
+
+parse_option() {
+
+ OPTIND=2
+ while getopts ":s:c:" opt
+ do
+   case $opt in
+   s)   if [ "$OPTARG" -gt "0" ] 2> /dev/null; then
+         SNAPSHOT=$OPTARG
+        else
+          echo "Snapshot flag must be a number and greater than 0"
+          exit 1
+        fi
+      ;;
+
+   c) if [ -f $OPTARG ]; then
+          LISK_CONFIG=$OPTARG
+          DB_NAME=`grep "database" $LISK_CONFIG | cut -f 4 -d '"'`
+          LOG_FILE="$LOGS_DIR/$DB_NAME.app.log"
+          PID_FILE="$PIDS_DIR/$DB_NAME.pid"
+        else
+          echo "Invalid config.json entry. Please verify the file exists and try again."
+          exit 1
+      fi ;;
+   
+   :) echo "Missing option argument for -$OPTARG" >&2; exit 1;;
+   
+   *) echo "Unimplemented option: -$OPTARG" >&2; exit 1;;
+   esac
+ done
+
 }
 
 restore_db() {
-  stop_lisk
-  sleep 1
-  start_postgresql
-  sleep 1
-  rebuild2_lisk
-  start_lisk
+stop_lisk
+sleep 1
+start_postgresql
+sleep 1
+rebuild2_lisk
+start_lisk
 }
 
 backup_db() {
-  echo "Backing up blockchain..."
-    rm -f blockchain.*
-
-	pg_dump lisk_test > blockchain.db
-
-
-  if [ $? != 0 ]; then
-    echo "X Failed to backup blockchain."
-    exit 1
-  else
-    echo "▒^▒^▒ Blockchain backed up successfully."
-  fi
+echo "Backing up blockchain..."
+rm -f blockchain.*
+pg_dump lisk_test > blockchain.db
+if [ $? != 0 ]; then
+echo "X Failed to backup blockchain."
+exit 1
+else
+echo "√ Blockchain backed up successfully."
+fi
 }
 
+
+parse_option $@
 
 case $1 in
 "coldstart")
   coldstart_lisk
+  ;;
+"snapshot")
+  stop_lisk
+  start_postgresql
+  sleep 2
+  snapshot_lisk
   ;;
 "start_node")
   start_lisk
@@ -350,14 +400,6 @@ case $1 in
   rebuild_lisk
   start_lisk
   ;;
-"restore")
-  stop_lisk
-  sleep 1
-  start_postgresql
-  sleep 1
-  rebuild2_lisk
-  start_lisk
-  ;;
 "start_db")
   start_postgresql
   ;;
@@ -373,20 +415,20 @@ case $1 in
 "help")
   help
   ;;
-"backup")
+  "backup")
 stop_lisk
 sleep 2
 backup_db
 sleep 1
 start_lisk
-  ;;
+;;
 "backuphot")
-  backup_db
-  ;;
+backup_db
+;;
 *)
   echo "Error: Unrecognized command."
   echo ""
-  echo "Available commands are: backup backuphot restore start stop start_node stop_node start_db stop_db reload rebuild coldstart logs status help"
+  echo "Available commands are: start stop start_node stop_node start_db stop_db reload rebuild coldstart snapshot logs status help"
   help
   ;;
 esac
