@@ -107,7 +107,7 @@ create_database() {
 populate_database() {
   psql -ltAq | grep -q "^$DB_NAME|" &> /dev/null
   if [ $? == 0 ]; then
-#   download_blockchain
+    download_blockchain
     restore_blockchain
   fi
 }
@@ -319,7 +319,7 @@ stop_lisk() {
 
 rebuild_lisk() {
   create_database
-  download_blockchain
+# download_blockchain
   restore2_blockchain #changed from restore_blockchain
 }
 
