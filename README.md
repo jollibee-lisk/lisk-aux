@@ -1,5 +1,5 @@
 # lisk-aux
-aux script for backup/restore, a lisk.sh script with additional commands for v0.3.3</br>
+aux script for backup/restore, a lisk.sh script with additional commands</br>
 </br>
 bash aux.sh cmd</br>
 </br>
