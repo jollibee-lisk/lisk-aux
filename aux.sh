@@ -543,6 +543,9 @@ start_lisk
 "backuphot")
 backup_db
 ;;
+"restore") 
+restore2_blockchain 
+;; 
 
 
 
